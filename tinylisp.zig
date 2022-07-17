@@ -32,6 +32,9 @@ var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
 var sp: usize = cell.len;
+fn cell_space_check(heap_pointer: usize, stack_pointer: usize, wanted_space: usize) bool {
+    return stack_pointer * @sizeOf(Expr) - heap_pointer >= wanted_space;
+}
 fn print_heap() void {
     std.log.info("HEAP: (hp={})", .{hp});
     var i: usize = 0;
@@ -62,7 +65,7 @@ fn atom(name: []const u8) !Expr {
     if (i != hp) {
         return error.MisalignedHeap;
     }
-    if (i + name.len + 1 >= sp * @sizeOf(Expr)) {
+    if (!cell_space_check(i, sp, name.len + 1)) {
         return error.OutOfHeapMemory;
     }
     const name_ptr = A + i;
@@ -76,7 +79,7 @@ fn atom(name: []const u8) !Expr {
 }
 
 fn cons(x: Expr, y: Expr) !Expr {
-    if (hp >= (sp - 2) * @sizeOf(Expr)) {
+    if (!cell_space_check(hp, sp, 2 * @sizeOf(Expr))) {
         return error.OutOfStackMemory;
     }
     sp -= 1;
