@@ -10,7 +10,15 @@ const Expr = union(enum) {
     closure: *ExprOpaque, //*[2]Expr,
     nil,
     fn equals(self: Expr, other: Expr) bool {
-        return self == other;
+        return switch (self) {
+            .number => other == .number and self.number == other.number,
+            .atom => other == .atom and std.mem.eql(u8, self.atom, other.atom),
+            .string => other == .string and std.mem.eql(u8, self.string, other.string),
+            .primative => other == .primative and self.primative == other.primative,
+            .cons => other == .cons and self.cons == other.cons,
+            .closure => other == .closure and self.closure == other.closure,
+            .nil => other == .nil,
+        };
     }
     fn not(self: Expr) bool {
         return self == .nil;
@@ -105,19 +113,37 @@ fn cdr(p: Expr) Expr {
         else => err,
     };
 }
+fn pair(v: Expr, x: Expr, e: Expr) !Expr {
+    return try cons(try cons(v, x), e);
+}
+fn closure(v: Expr, x: Expr, e: Expr) !Expr {
+    const c = try pair(v, x, if (e.equals(env)) nil else e);
+    return Expr{ .closure = c.cons };
+}
+fn assoc(a: Expr, e: Expr) Expr {
+    var x = e;
+    while (x == .cons and !a.equals(car(car(x)))) {
+        x = cdr(x);
+    }
+    return if (x == .cons) cdr(car(x)) else err;
+}
 
 const nil: Expr = Expr.nil;
 var tru: Expr = undefined;
 var err: Expr = undefined;
+var env: Expr = undefined;
 
 pub fn main() !void {
     tru = try atom("#t");
     err = try atom("ERR");
+    env = try pair(tru, tru, nil);
+    _ = try closure(tru, tru, nil);
     _ = tru;
     _ = err;
     var c = try cons(tru, nil);
     std.log.info("car: {}", .{car(c)});
     std.log.info("cdr: {}", .{cdr(c)});
+    std.log.info("assoc: {}", .{assoc(tru, env)});
     print_heap();
     print_stack();
 }
