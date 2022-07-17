@@ -15,11 +15,41 @@ const Expr = union(enum) {
     fn not(self: Expr) bool {
         return self == .nil;
     }
+    pub fn format(self: Expr, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("Expr{{ .{s} = ", .{@tagName(self)});
+        switch (self) {
+            .number => |number| try writer.print("{}", .{number}),
+            .atom => |name| try writer.writeAll(name),
+            .nil => try writer.writeAll("void"),
+            else => try writer.writeAll("other"),
+        }
+        try writer.writeAll(" }");
+    }
 };
 var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
-const sp: i32 = cell.len;
+var sp: usize = cell.len;
+fn print_heap() void {
+    std.log.info("HEAP: (hp={})", .{hp});
+    var i: usize = 0;
+    while (i < hp) {
+        const heap_str = std.mem.span(A + i);
+        std.log.info("A+{} => {s}", .{ i, heap_str });
+        i += heap_str.len + 1;
+    }
+}
+fn print_stack() void {
+    std.log.info("STACK: (sp={})", .{sp});
+    var i = sp;
+    while (i < cell.len) {
+        std.log.info("cell[{}] => {}", .{ i, cell[i] });
+        i += 1;
+    }
+}
+
 fn atom(name: []const u8) !Expr {
     var i: usize = 0;
     while (i < hp) {
@@ -29,29 +59,34 @@ fn atom(name: []const u8) !Expr {
         }
         i += heap_str.len + 1;
     }
-    if (i == hp and i + name.len + 1 <= sp * @sizeOf(Expr)) {
-        for (name) |char| {
-            (A + i).* = char;
-            i += 1;
-        }
-        (A + i).* = 0;
-        hp += name.len + 1;
-        return Expr{ .atom = std.mem.span(A + i) };
-    } else {
+    if (i != hp) {
+        return error.MisalignedHeap;
+    }
+    if (i + name.len + 1 >= sp * @sizeOf(Expr)) {
         return error.OutOfHeapMemory;
     }
-}
-fn print_heap() void {
-    std.log.info("HEAP: (hp={})", .{hp});
-    var i: usize = 0;
-    while (i < hp) {
-        const heap_str = std.mem.span(A + i);
-        std.log.info(" => {s}", .{heap_str});
-        i += heap_str.len + 1;
+    const name_ptr = A + i;
+    for (name) |char| {
+        (A + i).* = char;
+        i += 1;
     }
+    (A + i).* = 0;
+    hp += name.len + 1;
+    return Expr{ .atom = std.mem.span(name_ptr) };
 }
 
-const nil: Expr = Expr{.nil};
+fn cons(x: Expr, y: Expr) !Expr {
+    if (hp >= (sp - 2) * @sizeOf(Expr)) {
+        return error.OutOfStackMemory;
+    }
+    sp -= 1;
+    cell[sp] = x;
+    sp -= 1;
+    cell[sp] = y;
+    return Expr{ .cons = @ptrCast(*void, &cell[sp]) };
+}
+
+const nil: Expr = Expr.nil;
 var tru: Expr = undefined;
 var err: Expr = undefined;
 
@@ -60,5 +95,7 @@ pub fn main() !void {
     err = try atom("ERR");
     _ = tru;
     _ = err;
+    _ = try cons(tru, nil);
     print_heap();
+    print_stack();
 }
