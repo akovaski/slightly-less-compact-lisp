@@ -6,8 +6,8 @@ const Expr = union(enum) {
     atom: []const u8,
     string: []const u8,
     primative: *void, //fn (Expr, Expr) Expr,
-    cons: *void, //*[2]Expr,
-    closure: *void, //*[2]Expr,
+    cons: *ExprOpaque, //*[2]Expr,
+    closure: *ExprOpaque, //*[2]Expr,
     nil,
     fn equals(self: Expr, other: Expr) bool {
         return self == other;
@@ -27,7 +27,11 @@ const Expr = union(enum) {
         }
         try writer.writeAll(" }");
     }
+    fn cons_arr(arr_ptr: *ExprOpaque) *[2]Expr {
+        return @ptrCast(*[2]Expr, @alignCast(@alignOf(Expr), arr_ptr));
+    }
 };
+const ExprOpaque = opaque {};
 var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
@@ -86,7 +90,20 @@ fn cons(x: Expr, y: Expr) !Expr {
     cell[sp] = x;
     sp -= 1;
     cell[sp] = y;
-    return Expr{ .cons = @ptrCast(*void, &cell[sp]) };
+    return Expr{ .cons = @ptrCast(*ExprOpaque, &cell[sp]) };
+}
+
+fn car(p: Expr) Expr {
+    return switch (p) {
+        .cons, .closure => |arr_ptr| Expr.cons_arr(arr_ptr)[1],
+        else => err,
+    };
+}
+fn cdr(p: Expr) Expr {
+    return switch (p) {
+        .cons, .closure => |arr_ptr| Expr.cons_arr(arr_ptr)[0],
+        else => err,
+    };
 }
 
 const nil: Expr = Expr.nil;
@@ -98,7 +115,9 @@ pub fn main() !void {
     err = try atom("ERR");
     _ = tru;
     _ = err;
-    _ = try cons(tru, nil);
+    var c = try cons(tru, nil);
+    std.log.info("car: {}", .{car(c)});
+    std.log.info("cdr: {}", .{cdr(c)});
     print_heap();
     print_stack();
 }
