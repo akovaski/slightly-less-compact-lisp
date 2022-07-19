@@ -31,6 +31,7 @@ const Expr = union(enum) {
             .number => |number| try writer.print("{}", .{number}),
             .atom => |name| try writer.writeAll(name),
             .nil => try writer.writeAll("void"),
+            .cons, .closure => |arr_ptr| try writer.print("{}", .{(@ptrToInt(arr_ptr) - @ptrToInt(A)) / @sizeOf(Expr)}),
             else => try writer.writeAll("other"),
         }
         try writer.writeAll(" }");
