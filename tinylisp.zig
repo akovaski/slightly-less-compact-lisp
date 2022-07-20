@@ -5,7 +5,7 @@ const Expr = union(enum) {
     number: f64,
     atom: []const u8,
     string: []const u8,
-    primative: *void, //fn (Expr, Expr) Expr,
+    primative: *const PrimativeOpaque, //fn (Expr, Expr) Expr,
     cons: *ExprOpaque, //*[2]Expr,
     closure: *ExprOpaque, //*[2]Expr,
     nil,
@@ -23,6 +23,9 @@ const Expr = union(enum) {
     fn not(self: Expr) bool {
         return self == .nil;
     }
+    fn defaultTo(self: Expr, other: Expr) Expr {
+        return if (self.not()) other else self;
+    }
     pub fn format(self: Expr, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
@@ -39,8 +42,15 @@ const Expr = union(enum) {
     fn cons_arr(arr_ptr: *ExprOpaque) *[2]Expr {
         return @ptrCast(*[2]Expr, @alignCast(@alignOf(Expr), arr_ptr));
     }
+    fn num(self: Expr) !f64 {
+        return switch (self) {
+            .number => |f| f,
+            else => error.ExpressionIsNotNumber,
+        };
+    }
 };
 const ExprOpaque = opaque {};
+const PrimativeOpaque = opaque {};
 var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
@@ -115,7 +125,7 @@ fn cdr(p: Expr) Expr {
     };
 }
 fn pair(v: Expr, x: Expr, e: Expr) !Expr {
-    return try cons(try cons(v, x), e);
+    return cons(try cons(v, x), e);
 }
 fn closure(v: Expr, x: Expr, e: Expr) !Expr {
     const c = try pair(v, x, if (e.equals(env)) nil else e);
@@ -127,6 +137,178 @@ fn assoc(a: Expr, e: Expr) Expr {
         x = cdr(x);
     }
     return if (x == .cons) cdr(car(x)) else err;
+}
+fn eval(x: Expr, e: Expr) anyerror!Expr {
+    return switch (x) {
+        .atom => assoc(x, e),
+        .cons => apply(try eval(car(x), e), cdr(x), e),
+        else => x,
+    };
+}
+fn apply(f: Expr, t: Expr, e: Expr) !Expr {
+    return switch (f) {
+        .primative => |f_ptr| @ptrCast(PrimativeFunc, f_ptr)(t, e),
+        .closure => reduce(f, t, e),
+        else => err,
+    };
+}
+fn reduce(f: Expr, t: Expr, e: Expr) !Expr {
+    return eval(cdr(car(f)), try bind(car(car(f)), try evlis(t, e), cdr(f).defaultTo(env)));
+}
+fn evlis(t: Expr, e: Expr) anyerror!Expr {
+    return switch (t) {
+        .cons => cons(try eval(car(t), e), try evlis(cdr(t), e)),
+        else => eval(t, e),
+    };
+}
+fn bind(v: Expr, t: Expr, e: Expr) !Expr {
+    return switch (v) {
+        .nil => e,
+        .cons => bind(cdr(v), cdr(t), try pair(car(v), car(t), e)),
+        else => pair(v, t, e),
+    };
+}
+
+const PrimativeFunc = fn (Expr, Expr) anyerror!Expr;
+const PrimativeMatch = struct { s: []const u8, f: PrimativeFunc };
+const prim = [_]PrimativeMatch{
+    .{ .s = "eval", .f = f_eval },
+    .{ .s = "quote", .f = f_quote },
+    .{ .s = "cons", .f = f_cons },
+    .{ .s = "car", .f = f_car },
+    .{ .s = "cdr", .f = f_cdr },
+    .{ .s = "+", .f = f_add },
+    .{ .s = "-", .f = f_sub },
+    .{ .s = "*", .f = f_mul },
+    .{ .s = "/", .f = f_div },
+    .{ .s = "int", .f = f_int },
+    .{ .s = "<", .f = f_lt },
+    .{ .s = "eq?", .f = f_eq },
+    .{ .s = "or", .f = f_or },
+    .{ .s = "and", .f = f_and },
+    .{ .s = "not", .f = f_not },
+    .{ .s = "cond", .f = f_cond },
+    .{ .s = "if", .f = f_if },
+    .{ .s = "let*", .f = f_leta },
+    .{ .s = "lambda", .f = f_lambda },
+    .{ .s = "define", .f = f_define },
+};
+fn f_eval(t: Expr, e: Expr) !Expr {
+    return eval(car(try evlis(t, e)), e);
+}
+fn f_quote(t: Expr, _: Expr) !Expr {
+    return car(t);
+}
+fn f_cons(t: Expr, e: Expr) !Expr {
+    const tx = try evlis(t, e);
+    return cons(car(tx), car(cdr(tx)));
+}
+fn f_car(t: Expr, e: Expr) !Expr {
+    return car(car(try evlis(t, e)));
+}
+fn f_cdr(t: Expr, e: Expr) !Expr {
+    return cdr(car(try evlis(t, e)));
+}
+fn f_add(t: Expr, e: Expr) !Expr {
+    var tx = try evlis(t, e);
+    var n = try car(tx).num();
+    tx = cdr(tx);
+    while (!tx.not()) {
+        n += try car(tx).num();
+        tx = cdr(tx);
+    }
+    return Expr{ .number = n };
+}
+fn f_sub(t: Expr, e: Expr) !Expr {
+    var tx = try evlis(t, e);
+    var n = try car(tx).num();
+    tx = cdr(tx);
+    while (!tx.not()) {
+        n -= try car(tx).num();
+        tx = cdr(tx);
+    }
+    return Expr{ .number = n };
+}
+fn f_mul(t: Expr, e: Expr) !Expr {
+    var tx = try evlis(t, e);
+    var n = try car(tx).num();
+    tx = cdr(tx);
+    while (!tx.not()) {
+        n *= try car(tx).num();
+        tx = cdr(tx);
+    }
+    return Expr{ .number = n };
+}
+fn f_div(t: Expr, e: Expr) !Expr {
+    var tx = try evlis(t, e);
+    var n = try car(tx).num();
+    tx = cdr(tx);
+    while (!tx.not()) {
+        n /= try car(tx).num();
+        tx = cdr(tx);
+    }
+    return Expr{ .number = n };
+}
+fn f_int(t: Expr, e: Expr) !Expr {
+    const n = car(try evlis(t, e));
+    return switch (n) {
+        .number => |f| Expr{ .number = std.math.floor(f) },
+        else => error.ExpressionIsNotNumber,
+    };
+}
+fn f_lt(t: Expr, e: Expr) !Expr {
+    const tx = try evlis(t, e);
+    return if ((try car(tx).num()) - (try car(cdr(tx)).num()) < 0) tru else nil;
+}
+fn f_eq(t: Expr, e: Expr) !Expr {
+    const tx = try evlis(t, e);
+    return if (car(tx).equals(car(cdr(tx)))) tru else nil;
+}
+fn f_or(t: Expr, e: Expr) !Expr {
+    var tx = t;
+    while (tx != .nil) {
+        if (!(try eval(car(tx), e)).not()) return tru;
+        tx = cdr(tx);
+    }
+    return nil;
+}
+fn f_and(t: Expr, e: Expr) !Expr {
+    var tx = t;
+    while (tx != .nil) {
+        if ((try eval(car(tx), e)).not()) return nil;
+        tx = cdr(tx);
+    }
+    return tru;
+}
+fn f_not(t: Expr, e: Expr) !Expr {
+    const tx = try evlis(t, e);
+    return if (car(tx).not()) tru else nil;
+}
+fn f_cond(t: Expr, e: Expr) !Expr {
+    var tx = t;
+    while (tx != .nil and (try eval(car(car(tx)), e)).not()) {
+        tx = cdr(tx);
+    }
+    return eval(car(cdr(car(tx))), e);
+}
+fn f_if(t: Expr, e: Expr) !Expr {
+    return eval(car(cdr(if ((try eval(car(t), e)).not()) cdr(t) else t)), e);
+}
+fn f_leta(t: Expr, e: Expr) !Expr {
+    var ex = e;
+    var tx = t;
+    while (tx != .nil and cdr(tx) != .nil) {
+        ex = try pair(car(car(tx)), try eval(car(cdr(car(tx))), ex), ex);
+        tx = cdr(tx);
+    }
+    return eval(car(tx), ex);
+}
+fn f_lambda(t: Expr, e: Expr) !Expr {
+    return closure(car(t), car(cdr(t)), e);
+}
+fn f_define(t: Expr, e: Expr) !Expr {
+    env = try pair(car(t), try eval(car(cdr(t)), e), env);
+    return car(t);
 }
 
 const nil: Expr = Expr.nil;
@@ -145,6 +327,9 @@ pub fn main() !void {
     std.log.info("car: {}", .{car(c)});
     std.log.info("cdr: {}", .{cdr(c)});
     std.log.info("assoc: {}", .{assoc(tru, env)});
+    for (prim) |p| {
+        env = try pair(try atom(p.s), Expr{ .primative = @ptrCast(*const PrimativeOpaque, p.f) }, env);
+    }
     print_heap();
     print_stack();
 }
