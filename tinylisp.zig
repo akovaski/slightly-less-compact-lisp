@@ -316,6 +316,46 @@ var tru: Expr = undefined;
 var err: Expr = undefined;
 var env: Expr = undefined;
 
+var buf: [40]u8 = [1]u8{0} ** 40;
+var see: u8 = ' ';
+fn look() !void {
+    var read_buf = [1]u8{0};
+    const bytes_read = std.io.getStdIn().read(&read_buf) catch {
+        return error.StdInReadFailure;
+    };
+    if (bytes_read == 0) {
+        // may happen if EOF received
+        return error.EOF;
+    } else if (bytes_read != 1) {
+        std.log.err("invalid number of bytes read: {}", .{bytes_read});
+    }
+    see = read_buf[0];
+}
+fn seeing(c: u8) bool {
+    return if (c == ' ') see > 0 and see <= c else see == c;
+}
+fn get() !u8 {
+    const c = see;
+    try look();
+    return c;
+}
+fn scan() !u8 {
+    var i: usize = 0;
+    while (seeing(' ')) try look();
+    if (seeing('(') or seeing(')') or seeing('\'')) {
+        buf[i] = try get();
+        i += 1;
+    } else {
+        buf[i] = try get();
+        i += 1;
+        while (i < 39 and !seeing('(') and !seeing(')') and !seeing(' ')) {
+            buf[i] = try get();
+            i += 1;
+        }
+    }
+    buf[i] = 0;
+    return buf[0];
+}
 pub fn main() !void {
     tru = try atom("#t");
     err = try atom("ERR");
@@ -332,4 +372,19 @@ pub fn main() !void {
     }
     print_heap();
     print_stack();
+    while (true) {
+        _ = scan() catch |err| {
+            switch (err) {
+                error.EOF => {
+                    // EOF Reached, exiting
+                    return;
+                },
+                else => {
+                    std.log.err("Unexpected error {}", .{err});
+                    std.os.exit(1);
+                },
+            }
+        };
+        std.log.info("scanned: {s}", .{@ptrCast([*:0]u8, &buf)});
+    }
 }
