@@ -71,7 +71,7 @@ const Expr = union(enum) {
 };
 const ExprOpaque = opaque {};
 const PrimativeOpaque = opaque {};
-var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
+var cell: [4096]Expr = [1]Expr{undefined} ** 4096;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
 var sp: usize = cell.len;
