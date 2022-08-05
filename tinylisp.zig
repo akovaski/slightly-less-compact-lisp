@@ -101,7 +101,7 @@ fn atom(name: []const u8) !Expr {
     return Expr{ .atom = std.mem.span(name_ptr) };
 }
 
-fn cons(x: Expr, y: Expr) !Expr {
+fn cons(x: Expr, y: Expr) error{OutOfStackMemory}!Expr {
     if (!cell_space_check(hp, sp, 2 * @sizeOf(Expr))) {
         return error.OutOfStackMemory;
     }
@@ -317,8 +317,9 @@ var err: Expr = undefined;
 var env: Expr = undefined;
 
 var buf: [40]u8 = [1]u8{0} ** 40;
+const buf_str = @ptrCast([*:0]u8, &buf);
 var see: u8 = ' ';
-fn look() !void {
+fn look() error{ EOF, StdInReadFailure }!void {
     var read_buf = [1]u8{0};
     const bytes_read = std.io.getStdIn().read(&read_buf) catch {
         return error.StdInReadFailure;
@@ -334,12 +335,12 @@ fn look() !void {
 fn seeing(c: u8) bool {
     return if (c == ' ') see > 0 and see <= c else see == c;
 }
-fn get() !u8 {
+fn get() error{ EOF, StdInReadFailure }!u8 {
     const c = see;
     try look();
     return c;
 }
-fn scan() !u8 {
+fn scan() error{ EOF, StdInReadFailure }!u8 {
     var i: usize = 0;
     while (seeing(' ')) try look();
     if (seeing('(') or seeing(')') or seeing('\'')) {
@@ -356,24 +357,57 @@ fn scan() !u8 {
     buf[i] = 0;
     return buf[0];
 }
+fn read() !Expr {
+    _ = try scan();
+    return parse();
+}
+fn parse() error{ParseError}!Expr {
+    return switch (buf[0]) {
+        '(' => list(),
+        '\'' => quote(),
+        else => atomic(),
+    } catch {
+        return error.ParseError;
+    };
+}
+fn list() error{ ListError, ParseError, EOF, StdInReadFailure, OutOfStackMemory }!Expr {
+    if ((try scan()) == ')') {
+        return nil;
+    } else if (std.mem.eql(u8, std.mem.span(buf_str), ".")) {
+        const x = try read();
+        _ = try scan();
+        return x;
+    } else {
+        const x = try parse();
+        return cons(x, try list());
+    }
+}
+fn quote() !Expr {
+    return cons(try atom("quote"), try cons(try read(), nil));
+}
+fn atomic() !Expr {
+    const buf_slice = std.mem.span(buf_str);
+    const x = std.fmt.parseFloat(f64, buf_slice) catch {
+        return atom(buf_slice);
+    };
+    return Expr{ .number = x };
+}
 pub fn main() !void {
     tru = try atom("#t");
     err = try atom("ERR");
     env = try pair(tru, tru, nil);
-    _ = try closure(tru, tru, nil);
-    _ = tru;
-    _ = err;
-    var c = try cons(tru, nil);
-    std.log.info("car: {}", .{car(c)});
-    std.log.info("cdr: {}", .{cdr(c)});
-    std.log.info("assoc: {}", .{assoc(tru, env)});
+    // const x = try atom("#x");
+    // const y = try atom("#y");
+    // var c = try cons(x, y);
+    // std.log.info("c: {}", .{c});
+    // std.log.info("car: {}", .{car(c)});
+    // std.log.info("cdr: {}", .{cdr(c)});
+    // std.log.info("assoc: {}", .{assoc(tru, env)});
     for (prim) |p| {
         env = try pair(try atom(p.s), Expr{ .primative = @ptrCast(*const PrimativeOpaque, p.f) }, env);
     }
-    print_heap();
-    print_stack();
     while (true) {
-        _ = scan() catch |err| {
+        const r = read() catch |err| {
             switch (err) {
                 error.EOF => {
                     // EOF Reached, exiting
@@ -385,6 +419,8 @@ pub fn main() !void {
                 },
             }
         };
-        std.log.info("scanned: {s}", .{@ptrCast([*:0]u8, &buf)});
+        print_heap();
+        print_stack();
+        std.log.info("read: {}", .{r});
     }
 }
