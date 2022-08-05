@@ -145,7 +145,7 @@ fn pair(v: Expr, x: Expr, e: Expr) !Expr {
     return cons(try cons(v, x), e);
 }
 fn closure(v: Expr, x: Expr, e: Expr) !Expr {
-    const c = try pair(v, x, if (e.equals(env)) nil else e);
+    const c = try pair(v, x, if (e.equals(env)) .nil else e);
     return Expr{ .closure = c.cons };
 }
 fn assoc(a: Expr, e: Expr) Expr {
@@ -275,11 +275,11 @@ fn f_int(t: Expr, e: Expr) !Expr {
 }
 fn f_lt(t: Expr, e: Expr) !Expr {
     const tx = try evlis(t, e);
-    return if ((try car(tx).num()) - (try car(cdr(tx)).num()) < 0) tru else nil;
+    return if ((try car(tx).num()) - (try car(cdr(tx)).num()) < 0) tru else .nil;
 }
 fn f_eq(t: Expr, e: Expr) !Expr {
     const tx = try evlis(t, e);
-    return if (car(tx).equals(car(cdr(tx)))) tru else nil;
+    return if (car(tx).equals(car(cdr(tx)))) tru else .nil;
 }
 fn f_or(t: Expr, e: Expr) !Expr {
     var tx = t;
@@ -287,19 +287,19 @@ fn f_or(t: Expr, e: Expr) !Expr {
         if (!(try eval(car(tx), e)).not()) return tru;
         tx = cdr(tx);
     }
-    return nil;
+    return .nil;
 }
 fn f_and(t: Expr, e: Expr) !Expr {
     var tx = t;
     while (tx != .nil) {
-        if ((try eval(car(tx), e)).not()) return nil;
+        if ((try eval(car(tx), e)).not()) return .nil;
         tx = cdr(tx);
     }
     return tru;
 }
 fn f_not(t: Expr, e: Expr) !Expr {
     const tx = try evlis(t, e);
-    return if (car(tx).not()) tru else nil;
+    return if (car(tx).not()) tru else .nil;
 }
 fn f_cond(t: Expr, e: Expr) !Expr {
     var tx = t;
@@ -327,11 +327,6 @@ fn f_define(t: Expr, e: Expr) !Expr {
     env = try pair(car(t), try eval(car(cdr(t)), e), env);
     return car(t);
 }
-
-const nil: Expr = Expr.nil;
-var tru: Expr = undefined;
-var err: Expr = undefined;
-var env: Expr = undefined;
 
 var buf: [40]u8 = [1]u8{0} ** 40;
 const buf_str = @ptrCast([*:0]u8, &buf);
@@ -389,7 +384,7 @@ fn parse() error{ParseError}!Expr {
 }
 fn list() error{ ListError, ParseError, EOF, StdInReadFailure, OutOfStackMemory }!Expr {
     if ((try scan()) == ')') {
-        return nil;
+        return .nil;
     } else if (std.mem.eql(u8, std.mem.span(buf_str), ".")) {
         const x = try read();
         _ = try scan();
@@ -400,7 +395,7 @@ fn list() error{ ListError, ParseError, EOF, StdInReadFailure, OutOfStackMemory 
     }
 }
 fn quote() !Expr {
-    return cons(try atom("quote"), try cons(try read(), nil));
+    return cons(try atom("quote"), try cons(try read(), .nil));
 }
 fn atomic() !Expr {
     const buf_slice = std.mem.span(buf_str);
@@ -409,10 +404,14 @@ fn atomic() !Expr {
     };
     return Expr{ .number = x };
 }
+
+var tru: Expr = undefined;
+var err: Expr = undefined;
+var env: Expr = undefined;
 pub fn main() !void {
     tru = try atom("#t");
     err = try atom("ERR");
-    env = try pair(tru, tru, nil);
+    env = try pair(tru, tru, .nil);
     // const x = try atom("#x");
     // const y = try atom("#y");
     // var c = try cons(x, y);
