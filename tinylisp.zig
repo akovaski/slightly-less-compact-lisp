@@ -35,7 +35,7 @@ const Expr = union(enum) {
             .string => |str| try writer.print("\"{s}\"", .{str}),
             .primative => |p| try writer.print("<{s}>", .{p.s}),
             .cons => try formatlist(self, writer),
-            .closure => |arr_ptr| try writer.print("{}", .{(@ptrToInt(arr_ptr) - @ptrToInt(A)) / @sizeOf(Expr)}),
+            .closure => |arr_ptr| try writer.print("{}", .{cons_offset(arr_ptr)}),
             .nil => try writer.writeAll("()"),
         }
     }
@@ -59,6 +59,9 @@ const Expr = union(enum) {
     fn cons_arr(arr_ptr: *ExprOpaque) *[2]Expr {
         return @ptrCast(*[2]Expr, @alignCast(@alignOf(Expr), arr_ptr));
     }
+    pub fn cons_offset(arr_ptr: *ExprOpaque) usize {
+        return (@ptrToInt(arr_ptr) - @ptrToInt(A)) / @sizeOf(Expr);
+    }
     fn num(self: Expr) !f64 {
         return switch (self) {
             .number => |f| f,
@@ -72,6 +75,9 @@ var cell: [1024]Expr = [1]Expr{undefined} ** 1024;
 const A: [*:0]u8 = @ptrCast([*:0]u8, &cell);
 var hp: usize = 0;
 var sp: usize = cell.len;
+fn gc() void {
+    sp = Expr.cons_offset(env.cons);
+}
 fn cell_space_check(heap_pointer: usize, stack_pointer: usize, wanted_space: usize) bool {
     return stack_pointer * @sizeOf(Expr) - heap_pointer >= wanted_space;
 }
@@ -438,5 +444,6 @@ pub fn main() !void {
         print_heap();
         print_stack();
         std.log.info("read: {}", .{r});
+        gc();
     }
 }
