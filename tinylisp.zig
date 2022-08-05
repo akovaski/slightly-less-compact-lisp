@@ -275,7 +275,7 @@ fn f_div(t: Expr, e: Expr) !Expr {
 fn f_int(t: Expr, e: Expr) !Expr {
     const n = car(try evlis(t, e));
     return switch (n) {
-        .number => |f| Expr{ .number = std.math.floor(f) },
+        .number => |f| Expr{ .number = @trunc(f) },
         else => error.ExpressionIsNotNumber,
     };
 }
