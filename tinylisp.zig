@@ -418,13 +418,6 @@ pub fn main() !void {
     tru = try atom("#t");
     err = try atom("ERR");
     env = try pair(tru, tru, .nil);
-    // const x = try atom("#x");
-    // const y = try atom("#y");
-    // var c = try cons(x, y);
-    // std.log.info("c: {}", .{c});
-    // std.log.info("car: {}", .{car(c)});
-    // std.log.info("cdr: {}", .{cdr(c)});
-    // std.log.info("assoc: {}", .{assoc(tru, env)});
     for (prim) |*p| {
         env = try pair(try atom(p.s), Expr{ .primative = p }, env);
     }
@@ -441,9 +434,10 @@ pub fn main() !void {
                 },
             }
         };
-        print_heap();
-        print_stack();
-        std.log.info("read: {}", .{r});
+        // print_heap();
+        // print_stack();
+        // std.log.info("read: {}", .{r});
+        std.log.info("{}>{}", .{ (sp - hp / @sizeOf(Expr)), try eval(r, env) });
         gc();
     }
 }
