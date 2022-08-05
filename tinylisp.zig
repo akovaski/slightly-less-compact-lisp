@@ -5,7 +5,7 @@ const Expr = union(enum) {
     number: f64,
     atom: []const u8,
     string: []const u8,
-    primative: *const PrimativeOpaque, //fn (Expr, Expr) Expr,
+    primative: *const PrimativeMatch,
     cons: *ExprOpaque, //*[2]Expr,
     closure: *ExprOpaque, //*[2]Expr,
     nil,
@@ -29,15 +29,32 @@ const Expr = union(enum) {
     pub fn format(self: Expr, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("Expr{{ .{s} = ", .{@tagName(self)});
         switch (self) {
-            .number => |number| try writer.print("{}", .{number}),
+            .number => |number| try writer.print("{d}", .{number}),
             .atom => |name| try writer.writeAll(name),
-            .nil => try writer.writeAll("void"),
-            .cons, .closure => |arr_ptr| try writer.print("{}", .{(@ptrToInt(arr_ptr) - @ptrToInt(A)) / @sizeOf(Expr)}),
-            else => try writer.writeAll("other"),
+            .string => |str| try writer.print("\"{s}\"", .{str}),
+            .primative => |p| try writer.print("<{s}>", .{p.s}),
+            .cons => try formatlist(self, writer),
+            .closure => |arr_ptr| try writer.print("{}", .{(@ptrToInt(arr_ptr) - @ptrToInt(A)) / @sizeOf(Expr)}),
+            .nil => try writer.writeAll("()"),
         }
-        try writer.writeAll(" }");
+    }
+    fn formatlist(l: Expr, writer: anytype) !void {
+        try writer.writeAll("(");
+        var t = l;
+        while (true) {
+            try writer.print("{}", .{car(t)});
+            t = cdr(t);
+            switch (t) {
+                .nil => break,
+                .cons => try writer.writeAll(" "),
+                else => {
+                    try writer.print(" . {}", .{t});
+                    break;
+                },
+            }
+        }
+        try writer.writeAll(")");
     }
     fn cons_arr(arr_ptr: *ExprOpaque) *[2]Expr {
         return @ptrCast(*[2]Expr, @alignCast(@alignOf(Expr), arr_ptr));
@@ -147,7 +164,7 @@ fn eval(x: Expr, e: Expr) anyerror!Expr {
 }
 fn apply(f: Expr, t: Expr, e: Expr) !Expr {
     return switch (f) {
-        .primative => |f_ptr| @ptrCast(PrimativeFunc, f_ptr)(t, e),
+        .primative => |p| p.f(t, e),
         .closure => reduce(f, t, e),
         else => err,
     };
@@ -403,8 +420,8 @@ pub fn main() !void {
     // std.log.info("car: {}", .{car(c)});
     // std.log.info("cdr: {}", .{cdr(c)});
     // std.log.info("assoc: {}", .{assoc(tru, env)});
-    for (prim) |p| {
-        env = try pair(try atom(p.s), Expr{ .primative = @ptrCast(*const PrimativeOpaque, p.f) }, env);
+    for (prim) |*p| {
+        env = try pair(try atom(p.s), Expr{ .primative = p }, env);
     }
     while (true) {
         const r = read() catch |err| {
